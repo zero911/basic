@@ -1,0 +1,17 @@
+
+/*搜索自断组装数据结构 [字段名=>[字段细项]]*/
+[
+'field'=>[
+    'model'=>'User',
+    'label'=>'field',//字段页面显示的名字,一般和字段名保持一致
+    'type'=>select/date/datetime/string
+    'default_value'=>默认值
+    'source'=>type是select的来源
+    'match_rule'=>验证规则
+    'empty'=>1/0 是否允许为空
+    'empty_text'=>''
+    'div'=>div的class名字
+
+]
+
+]
