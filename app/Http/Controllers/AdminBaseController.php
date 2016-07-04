@@ -54,10 +54,10 @@ class AdminBaseController extends Controller
     public function __construct(Request $request)
     {
         $this->request = $request;
-        $this->initCA() or abort(404);
+//        $this->initCA() or abort(404);
         $this->initModel();
         $this->initMenus();
-        $this->checkRights() or abort(403);
+//        $this->checkRights() or abort(403);
         $this->params = $this->request->except('_token');
     }
 

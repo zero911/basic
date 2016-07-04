@@ -1,30 +1,29 @@
 <?php
 /**
- * meta控制器,目前暂对catetory支持
+ *
  * User: ziann
- * Date: 16/3/27
+ * Date: 16/7/4
  * Time: 下午1:25
  */
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Func;
 
 
 use App\Http\Controllers\AdminBaseController;
 use Illuminate\Support\Facades\Validator;
 use Request;
 use Input;
-use App\Models\SystemLogger;
 use Session;
 
-class MetasController extends AdminBaseController
+class FunctionalityController extends AdminBaseController
 {
 
-    protected $modelName = 'App\Models\Metas';
+    protected $modelName = 'App\Models\Func\Functionality';
     protected $customPath = 'back.meta';
     protected $customView = ['index', 'create', 'edit', 'view'];
     protected $bCustomCondition = true;
     protected $aCustomConditionArray = ['type' => ['=', 'category']];
-    protected $routeName='category';
+    protected $routeName='functionality';
 
     public function beforeRender()
     {

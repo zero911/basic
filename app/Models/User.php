@@ -23,10 +23,10 @@ class User extends BaseModel implements AuthenticatableContract, CanResetPasswor
 {
     use Authenticatable, CanResetPassword;
 //    use EntrustUserTrait;
-    use SoftDeletes;
+//    use SoftDeletes;
     protected $table = 'yascmf_users';
 //    public $timestamps=false;
-    protected $dates = ['deleted_at'];
+//    protected $dates = ['deleted_at'];
     protected $fillable = [
         'id',
         'username',

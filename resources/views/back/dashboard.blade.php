@@ -2,12 +2,12 @@
 <section class="content">
 
     <!-- Small boxes (Stat box) -->
-    @if($menus ==null)
+{{--    @if($menus ==null)
         <div class="callout callout-info">
             <h4><i class="icon fa fa-check"></i> 提示</h4>
             <p>{{$noRoleMsg}}</p>
         </div>
-    @else
+    @else--}}
         <div class="row">
             <div class="col-lg-3 col-xs-6">
                 <!-- small box -->
@@ -62,5 +62,5 @@
                 </div>
             </div>
         </div>
-    @endif
+    {{--@endif--}}
 </section>

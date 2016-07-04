@@ -9,6 +9,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\AdminBaseController;
+use App\Models\Func\Functionality;
 use App\Models\User;
 use Session;
 
@@ -20,12 +21,12 @@ class HomeController extends AdminBaseController
      */
     public function getHome()
     {
-        $iUserId = Session::get('admin_user_id');
+/*        $iUserId = Session::get('admin_user_id');
         //得到菜单
         $menus=User::getRights($iUserId,true);
         if(!is_array($menus)){
             return view('back.view',['menus'=>null,'noRoleMsg' => '当前用户无角色信息，请联系超级管理员']);
-        }
-        return view('back.index', ['menus' => $menus]);
+        }*/
+        return view('back.index');
     }
 }

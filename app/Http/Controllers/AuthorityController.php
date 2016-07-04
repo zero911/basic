@@ -42,7 +42,7 @@ class AuthorityController extends Controller
                 return redirect()->back()->withInput()->withErrors('error', $aResultData[1]);
             }
             //登陆成功
-            SystemLogger::writeLog(Session::get('admin_user_id'),$request->url(),$request->getClientIp(),'AuthorityController@login','登陆系统');
+//            SystemLogger::writeLog(Session::get('admin_user_id'),$request->url(),$request->getClientIp(),'AuthorityController@login','登陆系统');
             return route('admin.home');
         }
         return view('auth.login');
@@ -76,8 +76,8 @@ class AuthorityController extends Controller
         $aAttemptData = [
             'username' => $aData['username'],
             'password' => $aData['password'],
-            'user_type' => 'manager',//管理员用户登陆权限
         ];
+
         $bSucc = Auth::attempt($aAttemptData, false, true);
         //step2 user检查失败
         if (!$bSucc) {
