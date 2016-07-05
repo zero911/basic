@@ -168,6 +168,27 @@ if (!function_exists('cur_nav')) {
     }
 }
 
+/**
+ * 友好的日期输出
+ * @param  string Carbon $theDate 待处理的时间字符串
+ * @return string                         友好的时间字符串
+ */
+function friendly_date($theDate)
+{
+    // 获取待处理的日期对象
+    if (! $theDate instanceof \Carbon\Carbon)
+        $theDate = \Carbon\Carbon::createFromTimestamp(strtotime($theDate));
+    // 取得英文日期描述
+    $friendlyDateString = $theDate->diffForHumans(\Carbon\Carbon::now());
+    // 本地化
+    $friendlyDateArray  = explode(' ', $friendlyDateString);
+    $friendlyDateString = $friendlyDateArray[0]
+        .Lang::get('friendlyDate.'.$friendlyDateArray[1])
+        .Lang::get('friendlyDate.'.$friendlyDateArray[2]);
+    // 数据返回
+    return $friendlyDateString;
+}
+
 /** 后台二级菜单名称友好处理   一级菜单名/二级菜单名 ==》 二级菜单名
  * @param $sKidMenuName
  * @return mixed
