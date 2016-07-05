@@ -373,21 +373,43 @@ class BaseModel extends Ardent
         return true;
     }
 
-    public static function find($id,$columns=['*'])
+    /** [加入缓存的find方法]
+     * @param int $id
+     * @param array $columns
+     * @return bool|Ardent|\LaravelArdent\Ardent\Collection|static
+     */
+    public static function find($id, $columns = ['*'])
     {
-        if(static::$cacheDrivers[static::$cacheLevel]==self::CACHE_LEVEL_NONE){
-            return parent::find($id,$columns);
+        if (static::$cacheDrivers[static::$cacheLevel] == self::CACHE_LEVEL_NONE) {
+            return parent::find($id, $columns);
         }
         Cache::setDafaultDriver(static::$cacheDrivers[static::$cacheLevel]);
         $sKey = static::generateCacheKey($id);
-        if (Cache::has($sKey)) {
-            return Cache::get($sKey);
+        if ($aAttributes = Cache::get($sKey)) {
+            $obj = new static;
+            $obj = $obj->newFromBuilder($aAttributes);
         } else {
+            $obj = parent::find($id);
+            if (is_object($obj)) {
+                return false;
+            }
+            if (static::$cacheMinutes) {
+                Cache::put($sKey, $obj->getAttributes(), static::$cacheMinutes);
+            } else {
+                Cache::forver($sKey, $obj->getAttributes());
+            }
 
-            $oModel = parent::find($id);
-            Cache::put($sKey, $oModel);
-            return $oModel;
         }
+        // 移除不需要的属性
+        if (is_array($columns) && !empty($columns) && !in_array('*', $columns)) {
+
+            $aAllColumns = array_keys($obj->attributes);
+            $aExpertColumns = array_diff($aAllColumns, $columns);
+            foreach ($aExpertColumns as $sColumn) {
+                unset($obj->attributes[$sColumn]);
+            }
+        }
+        return $obj;
     }
 
     /** [获取所有父级]
