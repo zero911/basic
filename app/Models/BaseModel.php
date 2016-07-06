@@ -12,6 +12,8 @@ namespace App\Models;
 use LaravelArdent\Ardent\Ardent;
 use Cache;
 use Str;
+use DB;
+use Schema;
 
 class BaseModel extends Ardent
 {
@@ -127,7 +129,7 @@ class BaseModel extends Ardent
     public function __construct($attribute = [])
     {
         parent::__construct($attribute);
-//        $this->compileLangPack();
+        static::compileLangPack();
     }
 
     protected function getFriendlyCreatedAtAttribute()
@@ -178,7 +180,7 @@ class BaseModel extends Ardent
      */
     public static function getCachePrefix($bPlural = false)
     {
-        $sClass = static::getRealClassCache();
+        $sClass = static::getRealClassForCache();
         !$bPlural or $sClass = Str::plural($sClass);
         return config('cache.prefix') . $sClass . '-';
     }
@@ -389,7 +391,7 @@ class BaseModel extends Ardent
             $obj = new static;
             $obj = $obj->newFromBuilder($aAttributes);
         } else {
-            $obj = parent::find($id);
+            $obj = parent::find($id, $columns);
             if (is_object($obj)) {
                 return false;
             }
@@ -477,6 +479,125 @@ class BaseModel extends Ardent
         return $oQuery->get();
     }
 
+    /** [组建rules后的所有字段]
+     * @param bool $bForEditOrSave
+     * @param string $action|
+     */
+    public function makeColumnConfigures($bForEditOrSave = true, $action = 'edit')
+    {
+        static::$originalColumns = Schema::getColumnListing($this->table);
+        $this->columnTypes = $this->getColumnTypes();
+        $rules = $this->explodeRules(static::$rules);
+        $aColumnRules = [];
+        $aIgnoreColumns = [];
+        if ($bForEditOrSave == true) {
+            $aIgnoreColumns[] = $this->primaryKey;
+            $aIgnoreColumns[] = $this->getDeletedAtColumn();
+            $aIgnoreColumns[] = $this->getUpdatedAtColumn();
+            $aIgnoreColumns[] = $this->getCreatedAtColumn();
+
+            $aIgnoreColumnsForUpdate = [];
+            if ($action == 'edit') {
+                $aIgnoreColumnsForUpdate = static::$ignoreColumnsInEdit;
+            } elseif ($action == 'create') {
+                $aIgnoreColumnsForUpdate = static::$ignoreColumnsInCreate;
+            }
+            $aIgnoreColumns = array_merge($aIgnoreColumns, $aIgnoreColumnsForUpdate);
+        } else {
+            $aIgnoreColumns = static::$ignoreColumnsInView;
+        }
+        if (static::$treeable) {
+            $bForEditOrSave or $aIgnoreColumns[] = 'parent_id';
+            if (static::$foreFatherIdColumn) {
+                $aIgnoreColumns[] = static::$foreFatherIdColumn;
+                $aIgnoreColumns[] = static::$foreFatherColumn;
+            }
+        }
+        $aIgnoreColumns = array_unique($aIgnoreColumns);
+        foreach (static::$originalColumns as $originColumn) {
+
+            if (in_array($originColumn, $aIgnoreColumns)) {
+                continue;
+            }
+            $bDone = false;
+            $aColumnRules[$originColumn]['readonly'] = in_array($originColumn, static::$readonlyColumnsInEdit);
+            if (isset(static::$htmlSelectColumns[$originColumn])) {
+                $bDone = true;
+                $aColumnRules[$originColumn]['type'] = 'select';
+                $aColumnRules[$originColumn]['form_type'] = 'select';
+                $aColumnRules[$originColumn]['options'] = static::$htmlSelectColumns[$originColumn];
+                continue;
+            }
+            if (isset(static::$htmlTextAreaColumns)) {
+                $bDone = true;
+                $aColumnRules[$originColumn]['type'] = 'text';
+                $aColumnRules[$originColumn]['form_type'] = 'textarea';
+                continue;
+            }
+            if (isset($rules[$originColumn])) {
+
+                $sType = $sFormType = '';
+                $bDone = true;
+                $bRequired = false;
+                foreach ($rules as $column => $rule) {
+                    $aExplodeRule = explode(':', $rule);
+
+                    switch ($aExplodeRule[0]) {
+
+                        case 'required':
+                            $bRequired = true;
+                            $sType = 'text';
+                            break;
+                        case 'in':
+                            if (str_replace(' ', '', $aExplodeRule[1]) == '0,1') {
+                                $sType = 'bool';
+                                $sFormType = 'bool';
+                            } else {
+                                $sFormType = 'select';
+                                $sType = 'select';
+                            }
+                            break;
+                        case 'between':
+                            $sFormType = 'text';
+                            $sType = 'string';
+                            break;
+                        case 'max':
+                        case 'min':
+                            if (!isset($aColumnRules[$originColumn]['type'])) {
+                                $sFormType = 'text';
+                                $sType = 'string';
+                            }
+                            break;
+                        case 'numeric':
+                        case 'integer':
+                            $sFormType = 'text';
+                            $sType = $aExplodeRule[0];
+                            break;
+                        case 'date':
+                            $sFormType = 'date';
+                            $sType = 'text';
+                            break;
+                        case 'boolean':
+                            $sType = 'bool';
+                            $sFormType = 'bool';
+                            break;
+                        default:
+                            $sFormType = 'text';
+                            $sType = 'string';
+                    }
+                    $aColumnRules[$originColumn]['required'] = $bRequired;
+                    $aColumnRules[$originColumn]['type'] = $sType;
+                    $aColumnRules[$originColumn]['form_type'] = $sFormType;
+                }
+            }
+            if (!$bDone) {
+                $aColumnRules[$originColumn]['form_type'] = 'ignore';
+                $aColumnRules[$originColumn]['type'] = 'text';
+            }
+        }
+        $this->columnSettings = $aColumnRules;
+    }
+
     /**[获取所有指定字段的值数组,不穿入字段并使用主键,此方法等效getTitleList]
      * @param string $sColumn 字段名
      * @param array $aConditions 搜索条件
@@ -523,7 +644,7 @@ class BaseModel extends Ardent
     /** [获取类名]
      * @return string
      */
-    protected static function getRealClassCache()
+    protected static function getRealClassForCache()
     {
         $sClass = get_called_class();
         !static::$cacheUseParentClass or $sClass = get_parent_class($sClass);
@@ -545,9 +666,10 @@ class BaseModel extends Ardent
 
         return $sErrorMsg;
     }
+
     /**
      * [getFormattedNumberForHtml 获取格式化后的数字，用于金额显示]
-     * @param  string  $sColumn   [要格式化的字段]
+     * @param  string $sColumn [要格式化的字段]
      * @param  boolean $bTruncate [是否去除多余小数]
      * @return int                [格式化后的数字]
      */
@@ -561,5 +683,77 @@ class BaseModel extends Ardent
         } else {
             return number_format($fNumber, $iAccuracy);
         }
+    }
+
+    /**[格式化rules的value为array]
+     * @param $rules array
+     * @return mixed array
+     */
+    protected function explodeRules($rules)
+    {
+        foreach ($rules as $key => & $rule) {
+            $rule = (is_string($rule)) ? explode('|', $rule) : $rule;
+        }
+        return $rules;
+    }
+
+    /**[指定属性从语言包获取翻译]
+     * @param $sFunctionName string 函数名称
+     * @return mixed
+     */
+    protected static function _getArrayAttributes($sFunctionName)
+    {
+        $sName = Str::camel(substr($sFunctionName, 3));
+        $data = static::$$sName;
+        static::translateArray($data);
+        return $data;
+    }
+
+    /**[获取语言包名称]
+     * @return string
+     */
+    public static function compileLangPack()
+    {
+        $sClass = static::getRealClassForCache();
+        static::$defaultLangPack = '_' . strtolower($sClass);
+    }
+
+    protected function getDeletedAtColumn()
+    {
+        return $this->deleted_at;
+    }
+
+    /** [数组翻译]
+     * @param $aTexts array 翻译前后的数组
+     * @param int $iUcType
+     * @param array $aReplace
+     */
+    public static function translateArray(& $aTexts, $iUcType = 2, $aReplace = [])
+    {
+        static::compileLangPack();
+        if (empty($aTexts)) {
+            $aTexts = [];
+        }
+        foreach ($aTexts as $key => $value) {
+            $aTexts[$key] = __(static::$defaultLangPack . '.' . strtolower($value), $aReplace, $iUcType);
+        }
+    }
+
+    public static function translate($sColumn, $iUcType = 3, $aReplace = [])
+    {
+        return __(static::$defaultLangPack . '.' . strtolower($sColumn), $aReplace, $iUcType);
+    }
+
+    /**[严格更新]
+     * @param $aConditions array 更新条件
+     * @param $data array 更新数据
+     * @return bool
+     */
+    protected function strictUpdate($aConditions, $data)
+    {
+        if ($bSucc = $this->doWhere($aConditions)->update($data) > 0) {
+            $this->afterUpdate();
+        }
+        return $bSucc;
     }
 }
