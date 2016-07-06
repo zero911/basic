@@ -39,7 +39,7 @@ class User extends BaseModel implements AuthenticatableContract, CanResetPasswor
         'is_lock',
         'user_type',
     ];
-    public static $resourceName='user';
+//    public static $resourceName='user';
 
     public static $rules = [
         'username' => 'required|alpha_num|between:5,10',

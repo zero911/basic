@@ -127,7 +127,7 @@ class BaseModel extends Ardent
     public function __construct($attribute = [])
     {
         parent::__construct($attribute);
-        $this->compileLangPack();
+//        $this->compileLangPack();
     }
 
     protected function getFriendlyCreatedAtAttribute()
@@ -412,6 +412,25 @@ class BaseModel extends Ardent
         return $obj;
     }
 
+    /**[返回db的所有table的所有字段以及字段类型]
+     * @return array
+     */
+    public function & getColumnTypes()
+    {
+        if (empty($this->columnTypes)) {
+            $sDatabase = $this->getConnection()->getConfig('database');
+            $sSql = "select column_name,data_type from information_schema.columns where table_schema='$sDatabase' and table_name='{$this->table}' order by ordinal_position;";
+            $aColumns = DB::select($sSql);
+            $ret = [];
+
+            foreach ($aColumns as $aColumn) {
+                $ret[$aColumn->column_name] = $aColumn->data_type;
+            }
+            $this->columnTypes = $ret;
+        }
+        return $this->columnTypes;
+    }
+
     /** [获取所有父级]
      * @param int $iParent_id 父级id
      * @param array $aConditions 搜索条件
@@ -458,11 +477,36 @@ class BaseModel extends Ardent
         return $oQuery->get();
     }
 
+    /**[获取所有指定字段的值数组,不穿入字段并使用主键,此方法等效getTitleList]
+     * @param string $sColumn 字段名
+     * @param array $aConditions 搜索条件
+     * @param array $aOrderBy 排序条件
+     * @param bool $bUsePrimaryKey 是否使用主键
+     * @return array
+     */
+    public function getValueListArray($sColumn = null, $aConditions = [], $aOrderBy = [], $bUsePrimaryKey = false)
+    {
+        $sColumn or $sColumn = static::$titleColumn;
+        $aFields = $bUsePrimaryKey ? ['id', $sColumn] : $sColumn;
+        $aOrderBy or $aOrderBy = [$sColumn, 'asc'];
+        $obj = new static;
+        $oQuery = $obj->doWhere($aConditions);
+        $oQuery = $oQuery->doOrderBy($oQuery, $aOrderBy);
+        $aModels = $oQuery->get($aFields);
+
+        $ret = [];
+        foreach ($aModels as $oModel) {
+            $sFiledId = $bUsePrimaryKey ? $oModel->id : $sColumn;
+            $ret[$sFiledId] = $oModel->{$sColumn};
+        }
+        return $ret;
+    }
+
     /** [获取id和titleColumn组成数组 ，数据结构 id=>name]
      * @param bool $bOrderByTitle
      * @return array
      */
-    public static function getTitleList($bOrderByTitle = true)
+    public static function & getTitleList($bOrderByTitle = true)
     {
 
         $aFields = ['id', static::$titleColumn];
@@ -485,5 +529,37 @@ class BaseModel extends Ardent
         !static::$cacheUseParentClass or $sClass = get_parent_class($sClass);
         $sShortClass = substr($sClass, (strpos($sClass, '\\') - strlen($sClass) + 1));
         return $sShortClass;
+    }
+
+    /**[拼装表单错误提示语]
+     * @return string
+     */
+    public function & getValidationErrorString()
+    {
+        $aMsg = $this->exists ? [$this->id, ':'] : [static::$titleColumn, ':'];
+
+        foreach ($this->validationErrors->toArray() as $sColumn => $aMessage) {
+            $aMsg[] = $sColumn . ': ' . implode(',', $aMessage);
+        }
+        $sErrorMsg = implode(' ', $aMsg);
+
+        return $sErrorMsg;
+    }
+    /**
+     * [getFormattedNumberForHtml 获取格式化后的数字，用于金额显示]
+     * @param  string  $sColumn   [要格式化的字段]
+     * @param  boolean $bTruncate [是否去除多余小数]
+     * @return int                [格式化后的数字]
+     */
+    protected function getFormattedNumberForHtml($sColumn, $bTruncate = false)
+    {
+        $iAccuracy = static::$htmlNumberColumns[$sColumn] ? static::$htmlNumberColumns[$sColumn] : static::$amountAccuracy;
+        $fNumber = $this->{$sColumn};
+        $iBase = pow(10, $iAccuracy);
+        if ($bTruncate) {
+            return number_format(intval($fNumber * $iBase) / $iBase, $iAccuracy);
+        } else {
+            return number_format($fNumber, $iAccuracy);
+        }
     }
 }
