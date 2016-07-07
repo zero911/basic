@@ -199,10 +199,14 @@ class AdminBaseController extends Controller
 
     }
 
-    protected function compileRenderVars(){
+    protected function compileRenderVars()
+    {
 
     }
 
+    /**[统一重定向到模板函数]
+     * @return $this
+     */
     protected function render()
     {
         $this->beforeRender();
@@ -216,33 +220,109 @@ class AdminBaseController extends Controller
         return view($this->view)->with($this->viewVars);
     }
 
-    protected function goBack($sMsgType,$sMsg,$bWithModelErrors=false){
+    /** [统一重定向返回上级函数]
+     * @param $sMsgType string success/error
+     * @param $sMsg string 消息内容
+     * @param bool $bWithModelErrors 消息内容是否包含模型validationErrors
+     * @return $this|\Illuminate\Http\RedirectResponse
+     */
+    protected function goBack($sMsgType, $sMsg, $bWithModelErrors = false)
+    {
 
-        $oRedirectResponse=redirect()->back()->withInput()->with($sMsgType,$sMsg);
+        $oRedirectResponse = redirect()->back()->withInput()->with($sMsgType, $sMsg);
+        !$bWithModelErrors or $oRedirectResponse = $oRedirectResponse->withErrors($this->model->validationErrors());
 
-        ! $bWithModelErrors or $oRedirectResponse=$oRedirectResponse->withErrors($this->model->validationErrors());
         return $oRedirectResponse;
     }
 
-    protected function goBackToIndex($sMsgType,$sMsg){
+    /** [统一重定向返回index函数]
+     * @param $sMsgType string success/error
+     * @param $sMsg string 消息内容
+     * @return $this|\Illuminate\Http\RedirectResponse
+     */
+    protected function goBackToIndex($sMsgType, $sMsg)
+    {
         $sToUrl = $this->request->session()->get($this->redictKey) or $sToUrl = route('admin.dashboard');
         return redirect()->to($sToUrl)->with($sMsgType, $sMsg);
     }
 
+    /**[统一为模板准备数据方法]
+     * @param $sKey
+     * @param null $sValue
+     */
+    protected function setVars($sKey, $sValue = null)
+    {
+        if (is_array($sKey)) {
+            foreach ($sKey as $key => $value) {
+                $this->viewVars[$key] = $value;
+            }
+        } else {
+            $this->viewVars[$sKey] = $sValue;
+        }
+    }
+
+
     public function index()
     {
-        $iPageSize = isset($this->params['pageSize']) ? $this->params['pageSize'] : static::$pageSize;
         $oQuery = $this->indexQuery();
-        $oPaginate = $oQuery->paginage($iPageSize);
+        $sModelName = $this->modelName;
+        $iPageSize = isset($this->params['pagesize']) ? $this->params['pagesize'] : static::$pageSize;
+        $datas = $oQuery->paginage($iPageSize);
+        $this->setVars('datas', $datas);
+        if ($sMainParamName = $sModelName::$mainParamColumn) {
+            if (isset($aConditions[$sMainParamName])) {
+                $$sMainParamName = is_array($aConditions[$sMainParamName][1]) ? $aConditions[$sMainParamName][1][0] : $aConditions[$sMainParamName][1];
+            } else {
+                $$sMainParamName = null;
+            }
+            $this->setVars(compact($sMainParamName));
+        }
         return $this->render();
+    }
+
+    protected function compileParams()
+    {
+
+    }
+
+    public function indexQuery()
+    {
+        $this->compileParams();
+        $aConditions = & $this->makeSearchConditions();
+        $oQuery = $aConditions ? $this->model->doWhere($aConditions) : $this->model;
+        //是否支持软删除
+        $bWithTrashed = trim($this->request->input('_withTrashed', 0));
+        if ($bWithTrashed) {
+            $oQuery = $oQuery->withTrashed();
+        }
+        //是否支持分组查询
+        if ($sGroupByColumn = $this->request->input('group_by')) {
+            $oQuery = $this->model->doGroupBy($oQuery, [$sGroupByColumn]);
+        }
+        //获取排序条件
+        $aOrderSet = [];
+        if ($sOrderByColumn = $this->request->input('sort_up', $this->request->input('sort_down'))) {
+            $sDirection = $this->request->input('sort_up') ? 'asc' : 'desc';
+            $aConditions[$sOrderByColumn] = $sDirection;
+        }
+        $oQuery = $this->model->doOrderBy($oQuery, $aOrderSet);
+        return $oQuery;
+    }
+
+    protected function & makeSearchConditions()
+    {
+
+        $aConditions = [];
+
     }
 
     public function edit($id)
     {
-        if(!$id){
-
+        $data = $this->model->find($id);
+        if (!is_object($data)) {
+            return $this->goBackToIndex('error', __('_model.model-missing', $this->langVars));
         }
-        $this->model=$this->model->find($id)
+
     }
 
     public function create($id = null)
