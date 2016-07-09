@@ -288,7 +288,7 @@ class AdminBaseController extends Controller
     public function indexQuery()
     {
         $this->compileParams();
-        $aConditions = & $this->makeSearchConditions();
+        $aConditions = &$this->makeSearchConditions();
         $oQuery = $aConditions ? $this->model->doWhere($aConditions) : $this->model;
         //是否支持软删除
         $bWithTrashed = trim($this->request->input('_withTrashed', 0));
@@ -309,20 +309,85 @@ class AdminBaseController extends Controller
         return $oQuery;
     }
 
+    /**[组建搜索条件]
+     * @return array
+     */
     protected function & makeSearchConditions()
     {
-
         $aConditions = [];
+        $iCount = count($this->params);
+        foreach ($this->paramSettings as $sColumn => $aParam) {
+            $aFiledInfo = [];
+            if (!isset($this->params[$sColumn])) {
+                if ($aParam['when_limit_null'] && $iCount <= 1) {
+                    $aFiledInfo[1] = null;
+                } else {
+                    continue;
+                }
+            }
+            $value = isset($this->params[$sColumn]) ? $this->params[$sColumn] : null;
+            if (mb_strlen($value) && !$aParam['when_limit_null']) continue;
+
+            if (!isset($this->searchItems[$sColumn])) {
+                $aConditions[$sColumn] = ['=', $value];
+                continue;
+            }
+            $aPattSearch = ['!\$model!', '!\$\$field!', '!\$field!'];
+            $aItemConfig =& $this->searchItem[$sColumn];
+            $aPattReplace = [$aItemConfig['model'], $value, $aItemConfig['field']];
+            $sMatchRule = preg_replace($aPattSearch, $aPattReplace, $aItemConfig['match_rule']);
+            $aMatchRule = explode("\n", $sMatchRule);
+
+            if (count($aMatchRule) > 1) {        // OR
+                // todo : or
+            } else {
+                $aFieldInfo = array_map('trim', explode(' = ', $aMatchRule[0]));
+                $aTmp = explode(' ', $aFieldInfo[0]);
+                $iOperator = (count($aTmp) > 1) ? $aTmp[1] : '=';
+                if (!mb_strlen($value) && $aParam['limit_when_null']) {
+                    $aFieldInfo[1] = null;
+                }
+                list($tmp, $sField) = explode('.', $aTmp[0]);
+                $sField{0} == '$' or $sColumn = $sField;
+                if (isset($aConditions[$sColumn])) {
+                    // TODO 原来的方式from/to的值和search_items表中的记录的顺序强关联, 考虑修改为自动从小到大排序的[from, to]数组
+                    $arr = [$aConditions[$sColumn][1], $aFieldInfo[1]];
+                    sort($arr);
+                    // $sFrom = $aConditions[$sColumn][1];
+                    // $sTo = $aFieldInfo[1];
+                    $aConditions[$sColumn] = ['between', $arr];
+                } else {
+                    $aConditions[$sColumn] = [$iOperator, $aFieldInfo[1]];
+                }
+            }
+        }
+        return $aConditions;
 
     }
 
     public function edit($id)
     {
-        $data = $this->model->find($id);
-        if (!is_object($data)) {
+        $this->model = $this->model->find($id);
+        if (!is_object($this->model)) {
             return $this->goBackToIndex('error', __('_model.model-missing', $this->langVars));
         }
-
+        if ($this->request->isMethod('PUT')) {
+            DB::connection()->beginTransaction();
+            $bSucc = $this->saveData();
+            if ($bSucc) {
+                DB::commit();
+                return $this->goBackToIndex('success', __('_basic.updated', $this->langVars));
+            } else {
+                DB::rollback();
+                $this->langVars['reason'] = $this->model->getValidationErrorString();
+                return $this->goBack('error', __('_basic.updat-fail', $this->langVars));
+            }
+        }
+        $parent_id = $this->model->parent_id;
+        $data=$this->model;
+        $isEdit = true;
+        $this->setVars(compact('data', 'isEdit', 'parent_id', 'id'));
+        return $this->render();
     }
 
     public function create($id = null)
@@ -335,5 +400,64 @@ class AdminBaseController extends Controller
 
     public function destroy($id)
     {
+    }
+
+    /** [表单数据保存方法]
+     * @return mixed
+     */
+    protected function saveData()
+    {
+        $this->_fillModelDataFromInput();
+        $aRules = $this->_makeValidateRules($this->model);
+        return $this->save($aRules);
+    }
+
+    /**
+     * [表单填充方法,内部调用]
+     */
+    protected function _fillModelDataFromInput()
+    {
+
+        $data = $this->params;
+        $sModelName = $this->modelName;
+        !empty($this->model->columnSetting) or $this->model->makeColumnConfigures();
+
+        foreach ($this->model->columnSetting as $sColumn => $aSetting) {
+
+            if ($sColumn == 'id') continue;
+            if (!isset($aSetting['type'])) continue;
+
+            switch ($aSetting['type']) {
+                case 'bool':
+                case 'numeric':
+                case 'integer':
+                    !empty($data[$sColumn]) or $data[$sColumn] = 0;
+                    break;
+                case 'select':
+                    if (isset($data[$sColumn]) && is_array($data[$sColumn])) {
+                        sort($data[$sColumn]);
+                        $data[$sColumn] = implode(',', $data[$sColumn]);
+                    }
+            }
+        }
+        $this->model->fill($data);
+
+        if ($sModelName::$treeable) {
+            $this->model->parent_id or $this->model->parent_id = null;
+            if ($sModelName::$foreFatherColumn) {
+                $this->model->{$sModelName::$foreFatherColumn} = $this->model->setForeFather();
+            }
+        }
+    }
+
+    /** [自定义表单验证方法]
+     * @param $oModel
+     * @return mixed
+     */
+    protected function _makeValidateRules($oModel)
+    {
+        $sModel = get_class($oModel);
+        $aRules = $sModel::$rules;
+        return $aRules;
     }
 }
