@@ -8,6 +8,9 @@
 namespace App\Http\Controllers;
 
 // Frame
+use App\Models\Func\Functionality;
+use App\Models\Func\FunctionalityParam;
+use App\Models\Func\SearchConfig;
 use Illuminate\Support\Str;
 use Illuminate\Support\MessageBag;
 use Illuminate\Http\Request;
@@ -148,16 +151,34 @@ class AdminBaseController extends Controller
     {
         $this->request = $request;
         $this->ajax = $request->ajax();
+
         //初始化controller和action
         $this->initCA() or abort(403);
+
         //todo 权限处理开始
-        //获取functionality
+        $userRoleIds = Auth::user()->getUserRoles();
+        $this->isSystemAdmin = in_array(Role::ADMIN, $userRoleIds);
+        $this->aAvailableRealm = $this->isSystemAdmin ? [Functionality::REALM_SYSTEM, Functionality::REALM_ADMIN] : [Functionality::REALM_ADMIN];
+        $this->aRights = & Role::getRightOfRoles($userRoleIds);
+
+        //设置功能配置信息
+        $this->setFunctionality();
+
+        //权限判定
+        if (!in_array($this->controller, $this->openControllers)) {
+            $this->functionality or abort(404);
+            $this->checkRights() or abort(403);
+        }
+
         //初始化model
         $this->initModel();
 
         $this->compileResourceName();
     }
 
+    /** [ 初始化controller和action方法 ]
+     * @return bool
+     */
     protected function initCA()
     {
         if (!$ca = Route::getCurrentAtion()) {
@@ -168,6 +189,38 @@ class AdminBaseController extends Controller
         $sController = substr($ca[0], $iPos);
         list($this->controller, $this->action) = [$sController, $ca[1]];
         return true;
+    }
+
+    private function setFunctionality(){
+
+        $this->functionality=Functionality::getByCA($this->controller,$this->action,$this->aAvailableRealm);
+    }
+
+    private function checkRights(){
+
+        if(!$this->functionality || $this->functionality->disabled) return false;
+        //获取functionality_params
+        $this->paramSettings=FunctionalityParam::getParams($this->functionality->id);
+        //request得到所有表单元素
+        $this->params=trimArray($this->request->except('_token'));
+
+        if($this->functionality->need_search){
+            $this->getSearchConfig();
+            $this->setSearchInfo();
+        }
+
+    }
+
+    private function getSearchConfig(){
+
+        $this->searchConfig=SearchConfig::getForm($this->functionality->search_config_id);
+        if($this->searchConfig){
+            $this->searchItems=& $this->searchConfig->getItems();
+        }
+    }
+
+    private function setSearchInfo(){
+
     }
 
     protected function initModel()
@@ -384,22 +437,118 @@ class AdminBaseController extends Controller
             }
         }
         $parent_id = $this->model->parent_id;
-        $data=$this->model;
+        $data = $this->model;
         $isEdit = true;
         $this->setVars(compact('data', 'isEdit', 'parent_id', 'id'));
         return $this->render();
     }
 
+    /**
+     * [create 新增记录]
+     * @param  [Integer] $id [要新增记录所属的父记录id]
+     * @return [Response]
+     */
     public function create($id = null)
     {
+        // pr($this->request->method());exit;
+        if ($this->request->isMethod('POST')) {
+
+            DB::connection()->beginTransaction();
+            if ($bSucc = $this->saveData($id)) {
+                DB::connection()->commit();
+                Event::fire(new BaseCacheEvent($this->model));
+                return $this->goBackToIndex('success', __('_basic.created', $this->langVars));
+            } else {
+                DB::connection()->rollback();
+                $this->langVars['reason'] = &$this->model->getValidationErrorString();
+                return $this->goBack('error', __('_basic.create-fail', $this->langVars));
+            }
+        } else {
+            $data = $this->model;
+            $isEdit = false;
+            $this->setVars(compact('data', 'isEdit'));
+            $sModelName = $this->modelName;
+            list($sFirstParamName, $tmp) = each($this->paramSettings);
+            !isset($sFirstParamName) or $this->setVars($sFirstParamName, $id);
+            $aInitAttributes = isset($sFirstParamName) ? [$sFirstParamName => $id] : [];
+            $this->setVars(compact('aInitAttributes'));
+            return $this->render();
+        }
     }
 
+    /**
+     * view model
+     * @param int $id
+     * @return bool
+     */
     public function view($id)
     {
+        $this->model = $this->model->find($id);
+        if (!is_object($this->model)) {
+            return $this->goBackToIndex('error', __('_basic.missing', $this->langVars));
+        }
+        $data = $this->model;
+        $sModelName = $this->modelName;
+        if ($sModelName::$treeable) {
+            if ($this->model->parent_id) {
+                if (!array_key_exists('parent', $this->model->getAttributes())) {
+                    $sParentTitle = $sModelName::find($this->model->parent_id)->{$sModelName::$titleColumn};
+                } else {
+                    $sParentTitle = $this->model->parent;
+                }
+            } else {
+                $sParentTitle = '(' . __('_basic.top_level', [], 3) . ')';
+            }
+        }
+        $this->setVars(compact('data', 'sParentTitle'));
+        return $this->render();
     }
 
-    public function destroy($id)
+    /**
+     * [destroy 删除,支持批量删除]
+     * @param  [Integer] $id [记录id]
+     * @return [Response]
+     */
+    public function destroy($id = null)
     {
+        // pr($id);exit;
+        if (empty($id) && !isset($this->params['id'])) {
+            return $this->goBackToIndex('error', __('_basic.param-error', $this->langVars));
+        }
+        $id or $id = $this->params['id'];
+        $aIds = explode(',', $id);
+        $sModelName = $this->modelName;
+        $bSucc = false;
+        DB::connection()->beginTransaction();
+        foreach ($aIds as $id) {
+            $model = $sModelName::find($id);
+            if (empty($model)) {
+                break;
+            }
+            if ($sModelName::$treeable) {
+                if ($iSubCount = $model->where('parent_id', '=', $model->id)->count()) {
+                    $this->langVars['reason'] = __('_basic.not-leaf', $this->langVars);
+                    return redirect()->back()->with('error', __('_basic.delete-fail', $this->langVars));
+                }
+            }
+            if (!$bSucc = $model->delete() && $this->afterDestroy($model)) {
+                break;
+            }
+        }
+        $bSucc ? DB::connection()->commit() : DB::connection()->rollback();
+        $sLangKey = '_basic.' . ($bSucc ? 'deleted.' : 'delete-fail.');
+        $sType = $bSucc ? 'success' : 'error';
+        // pr($sType);exit;
+        return $this->goBackToIndex($sType, __($sLangKey, $this->langVars));
+    }
+
+    /** [删除后操作]
+     * @param $oModel object 要处理的模型对象
+     * @return bool
+     */
+    protected function afterDestroy($oModel)
+    {
+        return true;
     }
 
     /** [表单数据保存方法]
