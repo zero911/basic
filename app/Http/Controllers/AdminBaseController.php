@@ -211,6 +211,15 @@ class AdminBaseController extends Controller
             $this->setSearchInfo();
         }
 
+        if (!isset($enabled)) {
+            $this->blockedFuncs = & $this->getBlockedFuncs();
+            if ($enabled = !in_array($this->functionality->id, $this->blockedFuncs)) {
+                $enabled = in_array($this->functionality->id, $this->aRights);
+            }
+        }
+
+        return $enabled;
+
     }
 
     private function getSearchConfig()
