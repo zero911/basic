@@ -159,7 +159,7 @@ class AdminBaseController extends Controller
         $userRoleIds = Auth::user()->getUserRoles();
         $this->isSystemAdmin = in_array(Role::ADMIN, $userRoleIds);
         $this->aAvailableRealm = $this->isSystemAdmin ? [Functionality::REALM_SYSTEM, Functionality::REALM_ADMIN] : [Functionality::REALM_ADMIN];
-        $this->aRights = & Role::getRightOfRoles($userRoleIds);
+        $this->aRights = &Role::getRightOfRoles($userRoleIds);
 
         //设置功能配置信息
         $this->setFunctionality();
@@ -191,36 +191,45 @@ class AdminBaseController extends Controller
         return true;
     }
 
-    private function setFunctionality(){
+    private function setFunctionality()
+    {
 
-        $this->functionality=Functionality::getByCA($this->controller,$this->action,$this->aAvailableRealm);
+        $this->functionality = Functionality::getByCA($this->controller, $this->action, $this->aAvailableRealm);
     }
 
-    private function checkRights(){
+    private function checkRights()
+    {
 
-        if(!$this->functionality || $this->functionality->disabled) return false;
+        if (!$this->functionality || $this->functionality->disabled) return false;
         //获取functionality_params
-        $this->paramSettings=FunctionalityParam::getParams($this->functionality->id);
+        $this->paramSettings = FunctionalityParam::getParams($this->functionality->id);
         //request得到所有表单元素
-        $this->params=trimArray($this->request->except('_token'));
+        $this->params = trimArray($this->request->except('_token'));
 
-        if($this->functionality->need_search){
+        if ($this->functionality->need_search) {
             $this->getSearchConfig();
             $this->setSearchInfo();
         }
 
     }
 
-    private function getSearchConfig(){
+    private function getSearchConfig()
+    {
 
-        $this->searchConfig=SearchConfig::getForm($this->functionality->search_config_id);
-        if($this->searchConfig){
-            $this->searchItems=& $this->searchConfig->getItems();
+        if ($this->searchConfig = SearchConfig::getForm($this->functionality->search_config_id)) {
+            $this->searchItems =& $this->searchConfig->getItems();
         }
     }
 
-    private function setSearchInfo(){
+    protected function setSearchInfo() {
+        $bNeedCalendar = SearchConfig::makeSearhFormInfo($this->searchItems, $this->params, $aSearchFields);
+        $this->setVars(compact('aSearchFields', 'bNeedCalendar'));
+        $this->setVars('aSearchConfig', $this->searchConfig);
+        $this->addWidget('w.search');
+    }
 
+    protected function addWidget($sWidget) {
+        $this->widgets[] = $sWidget;
     }
 
     protected function initModel()
